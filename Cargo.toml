@@ -3,6 +3,15 @@ name = "txt-timer"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+clap = { version = "3", features = ["derive"] }
+colored = "2"
+
+[dev-dependencies]
+itertools = "0.10.3"
+
+[profile.release]
+opt-level = 'z'
+lto = true
+codegen-units = 1
+strip = true
