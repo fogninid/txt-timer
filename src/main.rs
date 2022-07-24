@@ -5,10 +5,12 @@ use crate::maximals::maximals::Maximals;
 use crate::timer::timer::{Stamp, Timer};
 use clap::{CommandFactory, ErrorKind, Parser};
 use colored::Colorize;
+use regex::Regex;
 use std::fmt::Formatter;
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::{fmt, fs, io, mem};
+use itertools::Itertools;
 
 #[derive(Parser)]
 /// Pipe through standard input while highlighting and keeping track of delays between lines.
@@ -24,6 +26,9 @@ struct Cli {
     /// range for color scale of delay, in seconds
     #[clap(long, value_parser, default_value_t = 0.2)]
     color_range: f32,
+    /// prepend time to output
+    #[clap(short, long, value_parser)]
+    time_regex: Option<Regex>,
     /// prepend time to output
     #[clap(short, long, value_parser, default_value_t = false)]
     prepend_time: bool,
@@ -43,7 +48,7 @@ impl fmt::Display for MaximalsStampsEntry {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "{:.4} @ {:.4}",
+            "Δ{:.4} @{:.4}",
             self.stamp.last.as_secs_f32(),
             self.stamp.total.as_secs_f32()
         )?;
@@ -101,6 +106,16 @@ fn main() -> io::Result<()> {
             .error(ErrorKind::InvalidValue, "color range must be positive")
             .exit();
     }
+    match cli.time_regex {
+        Some(r) => {
+            if !r.capture_names().contains(&Some("time")) {
+                Cli::command()
+                    .error(ErrorKind::InvalidValue, "regex must have a `(?P<time>exp)` capturing group")
+                    .exit();
+            }
+        }
+        _ => {}
+    }
 
     let mut max: MaximalsStampsBuffer = MaximalsStampsBuffer::new(cli.count);
 
@@ -119,7 +134,7 @@ fn main() -> io::Result<()> {
                     let r: u8 = (255.0 * (2.0 * x_scale)).min(255.0).max(0.0) as u8;
                     let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).min(255.0).max(0.0) as u8;
                     println!(
-                        "{} @ {}",
+                        "Δ{} @{}",
                         format!("{:.4}", x).truecolor(r, g, 0),
                         format!("{:.4}", stamp.total.as_secs_f32()).blue()
                     );
@@ -142,9 +157,9 @@ fn main() -> io::Result<()> {
     match cli.output_maximals {
         None => {
             if cli.color {
-                println!("{}:\n{}", "Maximals".yellow().bold(), max);
+                println!("\n{}:\n{}", "Maximals".yellow().bold(), max);
             } else {
-                println!("{}:\n{}", "Maximals", max);
+                println!("\n{}:\n{}", "Maximals", max);
             }
         }
         Some(filename) => {

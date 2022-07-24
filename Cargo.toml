@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "3", features = ["derive"] }
-colored = "2"
-
-[dev-dependencies]
-itertools = "0.10.3"
+clap = { version = "3.2", features = ["derive"] }
+chrono = "0.4"
+colored = "2.0"
+regex = "1.6"
+itertools = "0.10"
+dateparser = "0.1"
 
 [profile.release]
 opt-level = 'z'
