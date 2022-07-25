@@ -18,6 +18,7 @@ pub mod maximals {
             }
         }
 
+        #[cfg(test)]
         pub fn clear(&mut self) {
             self.data.clear();
         }

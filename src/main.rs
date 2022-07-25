@@ -2,15 +2,15 @@ mod maximals;
 mod timer;
 
 use crate::maximals::maximals::Maximals;
-use crate::timer::timer::{Stamp, Timer};
+use crate::timer::timer::{ChronoTimer, RegexTimer, Stamp, Timer};
 use clap::{CommandFactory, ErrorKind, Parser};
 use colored::Colorize;
+use itertools::Itertools;
 use regex::Regex;
 use std::fmt::Formatter;
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::{fmt, fs, io, mem};
-use itertools::Itertools;
 
 #[derive(Parser)]
 /// Pipe through standard input while highlighting and keeping track of delays between lines.
@@ -26,9 +26,12 @@ struct Cli {
     /// range for color scale of delay, in seconds
     #[clap(long, value_parser, default_value_t = 0.2)]
     color_range: f32,
-    /// prepend time to output
-    #[clap(short, long, value_parser)]
+    /// use regex to extract timestamp from lines instead of using real time, must have one (?<time> ) named capturing group
+    #[clap(long, value_parser)]
     time_regex: Option<Regex>,
+    /// format of timestamp, without timezone see `strftime`. Example `%Y-%m-%d %H:%M:%S%.3f`
+    #[clap(long, value_parser)]
+    time_regex_format: Option<String>,
     /// prepend time to output
     #[clap(short, long, value_parser, default_value_t = false)]
     prepend_time: bool,
@@ -77,8 +80,7 @@ impl MaximalsStampsBuffer {
     }
 
     fn insert(&mut self, stamp: Stamp, value: &String) {
-        let mut previous_line = Some(value.clone());
-        mem::swap(&mut self.previous_line, &mut previous_line);
+        let previous_line = mem::replace(&mut self.previous_line, Some(value.clone()));
         let line = value.clone();
         self.max.insert(MaximalsStampsEntry {
             stamp,
@@ -98,63 +100,53 @@ impl fmt::Display for MaximalsStampsBuffer {
     }
 }
 
-fn main() -> io::Result<()> {
-    let cli: Cli = Cli::parse();
-
-    if cli.color_range <= 0.0 {
-        Cli::command()
-            .error(ErrorKind::InvalidValue, "color range must be positive")
-            .exit();
+fn print_stamp(cli: &Cli, stamp: &Stamp) {
+    if cli.prepend_time {
+        if cli.color {
+            let x = stamp.last.as_secs_f32();
+            let x_scale = x / cli.color_range;
+            let r: u8 = (255.0 * (2.0 * x_scale)).min(255.0).max(0.0) as u8;
+            let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).min(255.0).max(0.0) as u8;
+            println!(
+                "Δ{} @{}",
+                format!("{:.4}", x).truecolor(r, g, 0),
+                format!("{:.4}", stamp.total.as_secs_f32()).blue()
+            );
+        } else {
+            println!(
+                "{} @ {}",
+                stamp.last.as_secs_f32(),
+                stamp.total.as_secs_f32()
+            );
+        }
     }
-    match cli.time_regex {
-        Some(r) => {
-            if !r.capture_names().contains(&Some("time")) {
+}
+
+fn make_timer(cli: &mut Cli) -> Box<dyn Timer> {
+    match (cli.time_regex.take(), cli.time_regex_format.take()) {
+        (Some(regex), Some(fmt)) => {
+            if !regex.capture_names().contains(&Some("time")) {
                 Cli::command()
-                    .error(ErrorKind::InvalidValue, "regex must have a `(?P<time>exp)` capturing group")
+                    .error(
+                        ErrorKind::InvalidValue,
+                        "regex must have a `(?P<time>exp)` capturing group",
+                    )
                     .exit();
             }
+            Box::new(RegexTimer::new(regex, fmt.as_str()))
         }
-        _ => {}
+        (None, None) => Box::new(ChronoTimer::new()),
+        _ => Cli::command()
+            .error(
+                ErrorKind::InvalidValue,
+                "time regex and format must be either both present or absent",
+            )
+            .exit(),
     }
+}
 
-    let mut max: MaximalsStampsBuffer = MaximalsStampsBuffer::new(cli.count);
-
-    {
-        let mut timer = Timer::new();
-
-        let mut buffer = String::new();
-        let mut stdin = io::stdin().lock();
-        while stdin.read_line(&mut buffer)? > 0 {
-            let stamp = timer.stamp();
-
-            if cli.prepend_time {
-                if cli.color {
-                    let x = stamp.last.as_secs_f32();
-                    let x_scale = x / cli.color_range;
-                    let r: u8 = (255.0 * (2.0 * x_scale)).min(255.0).max(0.0) as u8;
-                    let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).min(255.0).max(0.0) as u8;
-                    println!(
-                        "Δ{} @{}",
-                        format!("{:.4}", x).truecolor(r, g, 0),
-                        format!("{:.4}", stamp.total.as_secs_f32()).blue()
-                    );
-                } else {
-                    println!(
-                        "{} @ {}",
-                        stamp.last.as_secs_f32(),
-                        stamp.total.as_secs_f32()
-                    );
-                }
-            }
-            print!("{}", buffer);
-
-            max.insert(stamp, &buffer);
-
-            buffer.clear();
-        }
-    }
-
-    match cli.output_maximals {
+fn print_maximals(cli: &mut Cli, max: &MaximalsStampsBuffer) -> io::Result<()> {
+    match cli.output_maximals.take() {
         None => {
             if cli.color {
                 println!("\n{}:\n{}", "Maximals".yellow().bold(), max);
@@ -166,6 +158,35 @@ fn main() -> io::Result<()> {
             fs::write(filename, format!("{}", max))?;
         }
     }
+    Ok(())
+}
+
+fn main() -> io::Result<()> {
+    let mut cli: Cli = Cli::parse();
+
+    if cli.color_range <= 0.0 {
+        Cli::command()
+            .error(ErrorKind::InvalidValue, "color range must be positive")
+            .exit();
+    }
+    let mut timer = make_timer(&mut cli);
+
+    let mut max = MaximalsStampsBuffer::new(cli.count);
+
+    let mut buffer = String::new();
+    let mut stdin = io::stdin().lock();
+    while stdin.read_line(&mut buffer)? > 0 {
+        timer.stamp(&buffer).map(|stamp| {
+            print_stamp(&cli, &stamp);
+            max.insert(stamp, &buffer);
+        });
+        print!("{}", buffer);
+
+        buffer.clear();
+    }
+    drop(stdin);
+
+    print_maximals(&mut cli, &max)?;
 
     Ok(())
 }
