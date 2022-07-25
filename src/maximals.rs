@@ -1,81 +1,79 @@
-pub mod maximals {
-    use std::cmp::Ordering;
+use std::cmp::Ordering;
 
-    #[derive(Debug)]
-    pub struct Maximals<T>
-    where
-        T: Ord,
-    {
-        count: usize,
-        data: Vec<T>,
+#[derive(Debug)]
+pub struct Maximals<T>
+where
+    T: Ord,
+{
+    count: usize,
+    data: Vec<T>,
+}
+
+impl<T: Ord> Maximals<T> {
+    pub fn new(count: usize) -> Self {
+        Maximals {
+            count,
+            data: Vec::with_capacity(count),
+        }
     }
 
-    impl<T: Ord> Maximals<T> {
-        pub fn new(count: usize) -> Self {
-            Maximals {
-                count,
-                data: Vec::with_capacity(count),
-            }
+    #[cfg(test)]
+    pub fn clear(&mut self) {
+        self.data.clear();
+    }
+
+    pub fn insert(&mut self, element: T) {
+        let len = self.data.len();
+        let pos = self.bisect(0, len, &element);
+
+        if pos == len && len == self.count {
+            return;
         }
 
-        #[cfg(test)]
-        pub fn clear(&mut self) {
-            self.data.clear();
+        if len == self.count {
+            self.data.pop();
+        }
+        self.data.insert(pos, element)
+    }
+
+    pub fn data(&self) -> &[T] {
+        self.data.as_slice()
+    }
+
+    fn bisect(&self, begin: usize, end: usize, element: &T) -> usize {
+        if begin == end {
+            return begin;
         }
 
-        pub fn insert(&mut self, element: T) {
-            let len = self.data.len();
-            let pos = self.bisect(0, len, &element);
+        let first = self.data.get(begin).unwrap();
 
-            if pos == len && len == self.count {
-                return;
-            }
-
-            if len == self.count {
-                self.data.pop();
-            }
-            self.data.insert(pos, element)
+        if element.gt(first) {
+            return begin;
         }
 
-        pub fn data(&self) -> &[T] {
-            self.data.as_slice()
+        let last = self.data.get(end - 1).unwrap();
+        if element.lt(last) {
+            return end;
         }
 
-        fn bisect(&self, begin: usize, end: usize, element: &T) -> usize {
-            if begin == end {
-                return begin;
-            }
+        let pivot_pos = begin + (end - 1 - begin) / 2;
+        if pivot_pos == begin {
+            return end - 1;
+        }
 
-            let first = self.data.get(begin).unwrap();
+        let pivot = self.data.get(pivot_pos).unwrap();
 
-            if element.gt(first) {
-                return begin;
-            }
-
-            let last = self.data.get(end - 1).unwrap();
-            if element.lt(last) {
-                return end;
-            }
-
-            let pivot_pos = begin + (end - 1 - begin) / 2;
-            if pivot_pos == begin {
-                return end - 1;
-            }
-
-            let pivot = self.data.get(pivot_pos).unwrap();
-
-            return match element.cmp(pivot) {
-                Ordering::Less => self.bisect(pivot_pos, end, element),
-                Ordering::Equal => pivot_pos,
-                Ordering::Greater => self.bisect(begin, pivot_pos, element),
-            };
+        match element.cmp(pivot) {
+            Ordering::Less => self.bisect(pivot_pos, end, element),
+            Ordering::Equal => pivot_pos,
+            Ordering::Greater => self.bisect(begin, pivot_pos, element),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::maximals::maximals::Maximals;
+    use crate::maximals::Maximals;
     use itertools::Itertools;
     use std::cmp::Ordering;
 

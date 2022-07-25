@@ -1,8 +1,8 @@
 mod maximals;
 mod timer;
 
-use crate::maximals::maximals::Maximals;
-use crate::timer::timer::{ChronoTimer, RegexTimer, Stamp, Timer};
+use crate::maximals::Maximals;
+use crate::timer::{ChronoTimer, RegexTimer, Stamp, Timer};
 use clap::{CommandFactory, ErrorKind, Parser};
 use colored::Colorize;
 use itertools::Itertools;
@@ -56,11 +56,8 @@ impl fmt::Display for MaximalsStampsEntry {
             self.stamp.total.as_secs_f32()
         )?;
 
-        match &self.previous_line {
-            Some(s) => {
-                write!(f, "{}", s)?;
-            }
-            _ => {}
+        if let Some(s) = &self.previous_line {
+            write!(f, "{}", s)?;
         }
         write!(f, "{}", self.line)
     }
@@ -79,9 +76,9 @@ impl MaximalsStampsBuffer {
         }
     }
 
-    fn insert(&mut self, stamp: Stamp, value: &String) {
-        let previous_line = mem::replace(&mut self.previous_line, Some(value.clone()));
-        let line = value.clone();
+    fn insert(&mut self, stamp: Stamp, value: &str) {
+        let previous_line = mem::replace(&mut self.previous_line, Some(value.to_owned()));
+        let line = value.to_owned();
         self.max.insert(MaximalsStampsEntry {
             stamp,
             line,
@@ -151,7 +148,7 @@ fn print_maximals(cli: &mut Cli, max: &MaximalsStampsBuffer) -> io::Result<()> {
             if cli.color {
                 println!("\n{}:\n{}", "Maximals".yellow().bold(), max);
             } else {
-                println!("\n{}:\n{}", "Maximals", max);
+                println!("\nMaximals:\n{}", max);
             }
         }
         Some(filename) => {
@@ -176,10 +173,10 @@ fn main() -> io::Result<()> {
     let mut buffer = String::new();
     let mut stdin = io::stdin().lock();
     while stdin.read_line(&mut buffer)? > 0 {
-        timer.stamp(&buffer).map(|stamp| {
+        if let Some(stamp) = timer.stamp(&buffer) {
             print_stamp(&cli, &stamp);
             max.insert(stamp, &buffer);
-        });
+        };
         print!("{}", buffer);
 
         buffer.clear();

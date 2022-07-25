@@ -1,93 +1,91 @@
-pub mod timer {
-    use chrono::NaiveDateTime;
-    use regex::Regex;
-    use std::time::{Duration, Instant};
+use chrono::NaiveDateTime;
+use regex::Regex;
+use std::time::{Duration, Instant};
 
-    pub trait Timer {
-        fn stamp(&mut self, line: &str) -> Option<Stamp>;
+pub trait Timer {
+    fn stamp(&mut self, line: &str) -> Option<Stamp>;
+}
+
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
+pub struct Stamp {
+    pub last: Duration,
+    pub total: Duration,
+}
+
+pub struct ChronoTimer {
+    begin: Instant,
+    last: Instant,
+}
+
+impl Timer for ChronoTimer {
+    fn stamp(&mut self, _line: &str) -> Option<Stamp> {
+        let now = Instant::now();
+        let last = now.saturating_duration_since(self.last);
+        let total = now.saturating_duration_since(self.begin);
+        self.last = now;
+        Some(Stamp { last, total })
     }
+}
 
-    #[derive(Eq, PartialEq, Ord, PartialOrd)]
-    pub struct Stamp {
-        pub last: Duration,
-        pub total: Duration,
-    }
-
-    pub struct ChronoTimer {
-        begin: Instant,
-        last: Instant,
-    }
-
-    impl Timer for ChronoTimer {
-        fn stamp(&mut self, _line: &str) -> Option<Stamp> {
-            let now = Instant::now();
-            let last = now.saturating_duration_since(self.last);
-            let total = now.saturating_duration_since(self.begin);
-            self.last = now;
-            Some(Stamp { last, total })
+impl ChronoTimer {
+    pub fn new() -> Self {
+        let now = Instant::now();
+        ChronoTimer {
+            begin: now,
+            last: now,
         }
     }
+}
 
-    impl ChronoTimer {
-        pub fn new() -> Self {
-            let now = Instant::now();
-            ChronoTimer {
-                begin: now,
-                last: now,
+pub struct RegexTimer {
+    regex: Regex,
+    fmt: String,
+    last: Option<NaiveDateTime>,
+    begin: Option<NaiveDateTime>,
+}
+
+impl Timer for RegexTimer {
+    fn stamp(&mut self, line: &str) -> Option<Stamp> {
+        let matched_time = self
+            .regex
+            .captures(line)
+            .and_then(|m| m.name("time"))
+            .and_then(|s| NaiveDateTime::parse_from_str(s.as_str(), self.fmt.as_str()).ok());
+
+        match (matched_time, &self.begin, &self.last) {
+            (Some(t), Some(begin), Some(last)) => {
+                let last = t.signed_duration_since(*last).to_std().ok()?;
+                let total = t.signed_duration_since(*begin).to_std().ok()?;
+                self.last = Some(t);
+                Some(Stamp { last, total })
             }
+            (Some(t), None, _) => {
+                self.begin = Some(t);
+                self.last = Some(t);
+                Some(Stamp {
+                    last: Duration::ZERO,
+                    total: Duration::ZERO,
+                })
+            }
+            _ => None,
         }
     }
+}
 
-    pub struct RegexTimer {
-        regex: Regex,
-        fmt: String,
-        last: Option<NaiveDateTime>,
-        begin: Option<NaiveDateTime>,
-    }
-
-    impl Timer for RegexTimer {
-        fn stamp(&mut self, line: &str) -> Option<Stamp> {
-            let matched_time = self
-                .regex
-                .captures(line)
-                .and_then(|m| m.name("time"))
-                .and_then(|s| NaiveDateTime::parse_from_str(s.as_str(), self.fmt.as_str()).ok());
-
-            match (matched_time, &self.begin, &self.last) {
-                (Some(t), Some(begin), Some(last)) => {
-                    let last = t.signed_duration_since(*last).to_std().ok()?;
-                    let total = t.signed_duration_since(*begin).to_std().ok()?;
-                    self.last = Some(t);
-                    Some(Stamp { last, total })
-                }
-                (Some(t), None, _) => {
-                    self.begin = Some(t);
-                    self.last = Some(t);
-                    Some(Stamp {
-                        last: Duration::ZERO,
-                        total: Duration::ZERO,
-                    })
-                }
-                _ => None,
-            }
-        }
-    }
-
-    impl RegexTimer {
-        pub fn new(regex: Regex, fmt: &str) -> RegexTimer {
-            RegexTimer {
-                regex,
-                fmt: String::from(fmt),
-                last: None,
-                begin: None,
-            }
+impl RegexTimer {
+    pub fn new(regex: Regex, fmt: &str) -> RegexTimer {
+        RegexTimer {
+            regex,
+            fmt: String::from(fmt),
+            last: None,
+            begin: None,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::timer::timer::{RegexTimer, Timer};
+    use crate::timer::{RegexTimer, Timer};
     use regex::Regex;
     use std::time::Duration;
 
