@@ -22,18 +22,19 @@ impl<T: Ord> Maximals<T> {
         self.data.clear();
     }
 
-    pub fn insert(&mut self, element: T) {
+    pub fn insert(&mut self, element: T) -> Option<&mut T> {
         let len = self.data.len();
         let pos = self.bisect(0, len, &element);
 
         if pos == len && len == self.count {
-            return;
+            return None;
         }
 
         if len == self.count {
             self.data.pop();
         }
-        self.data.insert(pos, element)
+        self.data.insert(pos, element);
+        Some(&mut self.data[pos])
     }
 
     pub fn data(&self) -> &[T] {

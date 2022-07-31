@@ -12,6 +12,8 @@ fn parse_time() -> Result<(), Box<dyn std::error::Error>> {
         .arg("(?P<time>[0-9: -]*\\.\\d{3})")
         .arg("--time-regex-format")
         .arg("%Y-%m-%d %H:%M:%S%.3f")
+        .arg("-B")
+        .arg("1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -34,6 +36,36 @@ fn parse_time() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn parse_time_lines_before() -> Result<(), Box<dyn std::error::Error>> {
+    let mut child = Command::cargo_bin("txt-timer")?
+        .arg("--time-regex")
+        .arg("(?P<time>[0-9: -]*\\.\\d{3})")
+        .arg("--time-regex-format")
+        .arg("%Y-%m-%d %H:%M:%S%.3f")
+        .arg("-B")
+        .arg("2")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn child process");
+
+    let mut stdin = child.stdin.take().expect("Failed to open stdin");
+    std::thread::spawn(move || {
+        stdin
+            .write_all(
+                "2022-12-12 08:19:00.000 a\n2022-12-12 08:19:01.000 b\n2022-12-12 08:19:01.001 c\n"
+                    .as_bytes(),
+            )
+            .expect("Failed to write to stdin");
+    });
+
+    let output = child.wait_with_output().expect("Failed to read stdout");
+    assert_eq!(String::from_utf8_lossy(&output.stdout),
+               "2022-12-12 08:19:00.000 a\n2022-12-12 08:19:01.000 b\n2022-12-12 08:19:01.001 c\n\nMaximals:\nΔ1.0000 @1.0000\n2022-12-12 08:19:00.000 a\n2022-12-12 08:19:01.000 b\n\n\nΔ0.0010 @1.0010\n2022-12-12 08:19:00.000 a\n2022-12-12 08:19:01.000 b\n2022-12-12 08:19:01.001 c\n\n\nΔ0.0000 @0.0000\n2022-12-12 08:19:00.000 a\n\n\n\n");
+    Ok(())
+}
+
+#[test]
 fn parse_time_write_to_file() -> Result<(), Box<dyn std::error::Error>> {
     let temp_dir = assert_fs::TempDir::new()?;
     let maximals_file_path = temp_dir.child("maximals");
@@ -46,6 +78,8 @@ fn parse_time_write_to_file() -> Result<(), Box<dyn std::error::Error>> {
         .arg("(?P<time>[0-9: -]*\\.\\d{3})")
         .arg("--time-regex-format")
         .arg("%Y-%m-%d %H:%M:%S%.3f")
+        .arg("-B")
+        .arg("1")
         .arg("--output-maximals")
         .arg(maximals_file_str)
         .stdin(Stdio::piped())
