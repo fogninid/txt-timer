@@ -19,6 +19,9 @@ use std::{fmt, fs, io, vec};
 ///
 /// When completed print summary of maximum delays
 struct Cli {
+    /// do not output stdin
+    #[clap(short = 'q', long, value_parser, default_value_t = false)]
+    quiet: bool,
     /// number of top differences to print at the end
     #[clap(short, long, value_parser, default_value_t = 5)]
     count: usize,
@@ -186,7 +189,9 @@ fn main() -> io::Result<()> {
             print_stamp(&cli, &stamp);
             max.insert(stamp, &buffer);
         };
-        print!("{}", buffer);
+        if !cli.quiet {
+            print!("{}", buffer);
+        }
 
         buffer.clear();
     }
