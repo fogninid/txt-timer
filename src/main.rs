@@ -7,10 +7,12 @@ use clap::{CommandFactory, ErrorKind, Parser};
 use colored::Colorize;
 use itertools::Itertools;
 use regex::Regex;
+use std::collections::VecDeque;
 use std::fmt::Formatter;
 use std::io::BufRead;
 use std::path::PathBuf;
-use std::{fmt, fs, io, mem};
+use std::rc::Rc;
+use std::{fmt, fs, io, vec};
 
 #[derive(Parser)]
 /// Pipe through standard input while highlighting and keeping track of delays between lines.
@@ -20,6 +22,8 @@ struct Cli {
     /// number of top differences to print at the end
     #[clap(short, long, value_parser, default_value_t = 5)]
     count: usize,
+    #[clap(short = 'B', long, value_parser, default_value_t = 5)]
+    lines_before: usize,
     /// colorized output
     #[clap(long, value_parser, default_value_t = false)]
     color: bool,
@@ -43,8 +47,7 @@ struct Cli {
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
 struct MaximalsStampsEntry {
     stamp: Stamp,
-    line: String,
-    previous_line: Option<String>,
+    lines: Vec<Rc<str>>,
 }
 
 impl fmt::Display for MaximalsStampsEntry {
@@ -56,34 +59,40 @@ impl fmt::Display for MaximalsStampsEntry {
             self.stamp.total.as_secs_f32()
         )?;
 
-        if let Some(s) = &self.previous_line {
-            write!(f, "{}", s)?;
+        for l in &self.lines {
+            write!(f, "{}", l)?;
         }
-        write!(f, "{}", self.line)
+        Ok(())
     }
 }
 
 struct MaximalsStampsBuffer {
     max: Maximals<MaximalsStampsEntry>,
-    previous_line: Option<String>,
+    lines: VecDeque<Rc<str>>,
+    lines_count: usize,
 }
 
 impl MaximalsStampsBuffer {
-    fn new(count: usize) -> Self {
+    fn new(count: usize, c: usize) -> Self {
         MaximalsStampsBuffer {
             max: Maximals::new(count),
-            previous_line: None,
+            lines: VecDeque::with_capacity(c),
+            lines_count: c,
         }
     }
 
     fn insert(&mut self, stamp: Stamp, value: &str) {
-        let previous_line = mem::replace(&mut self.previous_line, Some(value.to_owned()));
-        let line = value.to_owned();
-        self.max.insert(MaximalsStampsEntry {
+        self.lines.push_back(Rc::from(value));
+        if self.lines.len() > self.lines_count + 1 {
+            self.lines.pop_front();
+        }
+
+        if let Some(b) = self.max.insert(MaximalsStampsEntry {
             stamp,
-            line,
-            previous_line,
-        });
+            lines: vec![],
+        }) {
+            b.lines.extend(self.lines.iter().cloned());
+        };
     }
 }
 
@@ -168,7 +177,7 @@ fn main() -> io::Result<()> {
     }
     let mut timer = make_timer(&mut cli);
 
-    let mut max = MaximalsStampsBuffer::new(cli.count);
+    let mut max = MaximalsStampsBuffer::new(cli.count, cli.lines_before);
 
     let mut buffer = String::new();
     let mut stdin = io::stdin().lock();
