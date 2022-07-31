@@ -98,7 +98,7 @@ impl MaximalsStampsBuffer {
 
 impl fmt::Display for MaximalsStampsBuffer {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for e in self.max.data() {
+        for e in self.max.iter() {
             writeln!(f, "{}", e)?;
             writeln!(f)?;
         }
