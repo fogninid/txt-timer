@@ -12,7 +12,10 @@ use std::fmt::Formatter;
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::{fmt, fs, io, vec};
+use std::{fmt, fs, io, thread, vec};
+use std::sync::mpsc;
+use std::sync::mpsc::{SyncSender};
+use std::thread::JoinHandle;
 
 #[derive(Parser)]
 /// Pipe through standard input while highlighting and keeping track of delays between lines.
@@ -45,6 +48,23 @@ struct Cli {
     /// redirect output of maximum differences to a file
     #[clap(short, long, parse(from_os_str))]
     output_maximals: Option<PathBuf>,
+    /// buffer size for asynchronous processing
+    #[clap(long, value_parser, default_value_t = 128)]
+    async_buffer_line_count: usize,
+}
+
+impl Cli {
+    fn parse_and_validate() -> Cli {
+        let cli = Cli::parse();
+
+        if cli.color_range <= 0.0 {
+            Cli::command()
+                .error(ErrorKind::InvalidValue, "color range must be positive")
+                .exit();
+        }
+
+        cli
+    }
 }
 
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
@@ -154,50 +174,125 @@ fn make_timer(cli: &mut Cli) -> Box<dyn Timer> {
     }
 }
 
-fn print_maximals(cli: &mut Cli, max: &MaximalsStampsBuffer) -> io::Result<()> {
-    match cli.output_maximals.take() {
-        None => {
-            if cli.color {
-                println!("\n{}:\n{}", "Maximals".yellow().bold(), max);
-            } else {
-                println!("\nMaximals:\n{}", max);
-            }
-        }
-        Some(filename) => {
-            fs::write(filename, format!("{}", max))?;
+trait Handler {
+    fn process_line(&mut self, buffer: &str);
+
+    fn print_and_end(self: Box<Self>) -> io::Result<()>;
+}
+
+fn make_handler(cli: Cli) -> Box<dyn Handler> {
+    if cli.async_buffer_line_count > 0 {
+        Box::new(ASyncHandler::new(cli))
+    } else {
+        Box::new(SyncHandler::new(cli))
+    }
+}
+
+struct SyncHandler {
+    timer: Box<dyn Timer>,
+    max: MaximalsStampsBuffer,
+    cli: Cli,
+}
+
+struct ASyncHandler {
+    join_handle: Option<JoinHandle<()>>,
+    tx: Option<SyncSender<String>>,
+}
+
+impl Handler for SyncHandler {
+    fn process_line(&mut self, buffer: &str) {
+        if let Some(stamp) = self.timer.stamp(buffer) {
+            print_stamp(&self.cli, &stamp);
+            self.max.insert(stamp, buffer);
+        };
+        if !self.cli.quiet {
+            print!("{}", buffer);
         }
     }
-    Ok(())
+
+    fn print_and_end(self: Box<Self>) -> io::Result<()> {
+        let max = self.max;
+        let cli = self.cli;
+        match cli.output_maximals {
+            None => {
+                if cli.color {
+                    println!("\n{}:\n{}", "Maximals".yellow().bold(), max);
+                } else {
+                    println!("\nMaximals:\n{}", max);
+                }
+            }
+            Some(filename) => {
+                fs::write(filename, format!("{}", max))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SyncHandler {
+    fn new(mut cli: Cli) -> Self {
+        let max = MaximalsStampsBuffer::new(cli.count, cli.lines_before);
+
+        let timer = make_timer(&mut cli);
+
+        SyncHandler { timer, max, cli }
+    }
+}
+
+impl Handler for ASyncHandler {
+    fn process_line(&mut self, buffer: &str) {
+        self.tx.as_ref().unwrap().send(String::from(buffer)).unwrap();
+    }
+
+    fn print_and_end(mut self: Box<Self>) -> io::Result<()> {
+        drop(self.tx.take());
+        self.join_handle.take().unwrap().join().unwrap();
+        Ok(())
+    }
+}
+
+impl Drop for ASyncHandler {
+    fn drop(&mut self) {
+        drop(self.tx.take());
+        if let Some(join_handle) = self.join_handle.take() {
+            match join_handle.join() {
+                Ok(_) => {}
+                Err(e) => println!("Can't join threads: {:?}", e),
+            }
+        }
+    }
+}
+
+impl ASyncHandler {
+    fn new(cli: Cli) -> Self {
+        let (tx, rx) = mpsc::sync_channel::<String>(cli.async_buffer_line_count);
+
+        let join_handle = thread::spawn(move || {
+            let mut sync_handler = SyncHandler::new(cli);
+            while let Ok(buffer) = rx.recv() {
+                sync_handler.process_line(&buffer);
+            }
+            Box::new(sync_handler).print_and_end().expect("failed to print");
+        });
+
+        ASyncHandler { join_handle: Some(join_handle), tx: Some(tx) }
+    }
 }
 
 fn main() -> io::Result<()> {
-    let mut cli: Cli = Cli::parse();
+    let cli: Cli = Cli::parse_and_validate();
 
-    if cli.color_range <= 0.0 {
-        Cli::command()
-            .error(ErrorKind::InvalidValue, "color range must be positive")
-            .exit();
-    }
-    let mut timer = make_timer(&mut cli);
-
-    let mut max = MaximalsStampsBuffer::new(cli.count, cli.lines_before);
+    let mut handler: Box<dyn Handler> = make_handler(cli);
 
     let mut buffer = String::new();
     let mut stdin = io::stdin().lock();
     while stdin.read_line(&mut buffer)? > 0 {
-        if let Some(stamp) = timer.stamp(&buffer) {
-            print_stamp(&cli, &stamp);
-            max.insert(stamp, &buffer);
-        };
-        if !cli.quiet {
-            print!("{}", buffer);
-        }
-
+        handler.process_line(&buffer);
         buffer.clear();
     }
     drop(stdin);
 
-    print_maximals(&mut cli, &max)?;
+    handler.print_and_end()?;
 
     Ok(())
 }
