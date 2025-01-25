@@ -3,8 +3,8 @@ mod timer;
 
 use crate::maximals::Maximals;
 use crate::timer::{ChronoTimer, RegexTimer, Stamp, Timer};
-use clap::{CommandFactory, Parser};
 use clap::error::ErrorKind;
+use clap::{CommandFactory, Parser};
 use colored::Colorize;
 use itertools::Itertools;
 use regex::Regex;
@@ -13,10 +13,10 @@ use std::fmt::Formatter;
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::{fmt, fs, io, thread, vec};
 use std::sync::mpsc;
-use std::sync::mpsc::{SyncSender};
+use std::sync::mpsc::SyncSender;
 use std::thread::JoinHandle;
+use std::{fmt, fs, io, thread, vec};
 
 #[derive(Parser)]
 /// Pipe through standard input while highlighting and keeping track of delays between lines.
@@ -244,7 +244,11 @@ impl SyncHandler {
 
 impl Handler for ASyncHandler {
     fn process_line(&mut self, buffer: &str) {
-        self.tx.as_ref().unwrap().send(String::from(buffer)).unwrap();
+        self.tx
+            .as_ref()
+            .unwrap()
+            .send(String::from(buffer))
+            .unwrap();
     }
 
     fn print_and_end(mut self: Box<Self>) -> io::Result<()> {
@@ -275,10 +279,15 @@ impl ASyncHandler {
             while let Ok(buffer) = rx.recv() {
                 sync_handler.process_line(&buffer);
             }
-            Box::new(sync_handler).print_and_end().expect("failed to print");
+            Box::new(sync_handler)
+                .print_and_end()
+                .expect("failed to print");
         });
 
-        ASyncHandler { join_handle: Some(join_handle), tx: Some(tx) }
+        ASyncHandler {
+            join_handle: Some(join_handle),
+            tx: Some(tx),
+        }
     }
 }
 

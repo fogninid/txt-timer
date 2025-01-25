@@ -10,7 +10,7 @@ pub trait Timer {
 pub struct Stamp {
     pub last: Duration,
     pub total: Duration,
-    pub utc: DateTime<Utc>
+    pub utc: DateTime<Utc>,
 }
 
 pub struct ChronoTimer {
