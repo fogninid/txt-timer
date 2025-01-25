@@ -67,7 +67,7 @@ impl Timer for RegexTimer {
                 self.last = Some(t);
                 let utc = t.and_utc();
                 Some(Stamp {
-                    utc: utc,
+                    utc,
                     last: Duration::ZERO,
                     total: Duration::ZERO,
                 })

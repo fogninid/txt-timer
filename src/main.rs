@@ -135,8 +135,8 @@ fn print_stamp(cli: &Cli, stamp: &Stamp) {
         if cli.color {
             let x = stamp.last.as_secs_f32();
             let x_scale = x / cli.color_range;
-            let r: u8 = (255.0 * (2.0 * x_scale)).min(255.0).max(0.0) as u8;
-            let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).min(255.0).max(0.0) as u8;
+            let r: u8 = (255.0 * (2.0 * x_scale)).clamp(0.0, 255.0) as u8;
+            let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).clamp(0.0, 255.0) as u8;
             println!(
                 "Δ{} @{} {}",
                 format!("{:.4}", x).truecolor(r, g, 0),
