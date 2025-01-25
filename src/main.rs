@@ -3,7 +3,8 @@ mod timer;
 
 use crate::maximals::Maximals;
 use crate::timer::{ChronoTimer, RegexTimer, Stamp, Timer};
-use clap::{CommandFactory, ErrorKind, Parser};
+use clap::{CommandFactory, Parser};
+use clap::error::ErrorKind;
 use colored::Colorize;
 use itertools::Itertools;
 use regex::Regex;
@@ -46,7 +47,7 @@ struct Cli {
     #[clap(short, long, value_parser, default_value_t = false)]
     prepend_time: bool,
     /// redirect output of maximum differences to a file
-    #[clap(short, long, parse(from_os_str))]
+    #[clap(short, long, value_parser)]
     output_maximals: Option<PathBuf>,
     /// buffer size for asynchronous processing
     #[clap(long, value_parser, default_value_t = 128)]
