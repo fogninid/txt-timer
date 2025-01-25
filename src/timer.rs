@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
 use std::time::{Duration, Instant};
 
@@ -10,6 +10,7 @@ pub trait Timer {
 pub struct Stamp {
     pub last: Duration,
     pub total: Duration,
+    pub utc: DateTime<Utc>
 }
 
 pub struct ChronoTimer {
@@ -20,10 +21,11 @@ pub struct ChronoTimer {
 impl Timer for ChronoTimer {
     fn stamp(&mut self, _line: &str) -> Option<Stamp> {
         let now = Instant::now();
+        let utc = Utc::now();
         let last = now.saturating_duration_since(self.last);
         let total = now.saturating_duration_since(self.begin);
         self.last = now;
-        Some(Stamp { last, total })
+        Some(Stamp { utc, last, total })
     }
 }
 
@@ -56,13 +58,16 @@ impl Timer for RegexTimer {
             (Some(t), Some(begin), Some(last)) => {
                 let last = t.signed_duration_since(*last).to_std().ok()?;
                 let total = t.signed_duration_since(*begin).to_std().ok()?;
+                let utc = t.and_utc();
                 self.last = Some(t);
-                Some(Stamp { last, total })
+                Some(Stamp { utc, last, total })
             }
             (Some(t), None, _) => {
                 self.begin = Some(t);
                 self.last = Some(t);
+                let utc = t.and_utc();
                 Some(Stamp {
+                    utc: utc,
                     last: Duration::ZERO,
                     total: Duration::ZERO,
                 })

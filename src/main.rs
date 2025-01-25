@@ -138,15 +138,17 @@ fn print_stamp(cli: &Cli, stamp: &Stamp) {
             let r: u8 = (255.0 * (2.0 * x_scale)).min(255.0).max(0.0) as u8;
             let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).min(255.0).max(0.0) as u8;
             println!(
-                "Δ{} @{}",
+                "Δ{} @{} {}",
                 format!("{:.4}", x).truecolor(r, g, 0),
-                format!("{:.4}", stamp.total.as_secs_f32()).blue()
+                format!("{:.4}", stamp.total.as_secs_f32()).blue(),
+                stamp.utc.to_rfc3339().bold().white()
             );
         } else {
             println!(
-                "{} @ {}",
+                "{} @ {} {}",
                 stamp.last.as_secs_f32(),
-                stamp.total.as_secs_f32()
+                stamp.total.as_secs_f32(),
+                stamp.utc.to_rfc3339()
             );
         }
     }
