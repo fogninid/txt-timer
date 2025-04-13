@@ -8,13 +8,18 @@ use clap::{CommandFactory, Parser};
 use colored::Colorize;
 use itertools::Itertools;
 use regex::Regex;
+use signal_hook::consts::TERM_SIGNALS;
+use signal_hook::flag;
+use signal_hook::iterator::Signals;
 use std::collections::VecDeque;
 use std::fmt::Formatter;
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::SyncSender;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::{fmt, fs, io, thread, vec};
 
@@ -291,20 +296,45 @@ impl ASyncHandler {
     }
 }
 
-fn main() -> io::Result<()> {
-    let cli: Cli = Cli::parse_and_validate();
-
+fn read_and_process(cli: Cli, term_flag: Arc<AtomicBool>) -> io::Result<()> {
     let mut handler: Box<dyn Handler> = make_handler(cli);
 
     let mut buffer = String::new();
     let mut stdin = io::stdin().lock();
-    while stdin.read_line(&mut buffer)? > 0 {
+    while !term_flag.load(Ordering::Relaxed) && stdin.read_line(&mut buffer)? > 0 {
         handler.process_line(&buffer);
         buffer.clear();
     }
     drop(stdin);
-
     handler.print_and_end()?;
-
     Ok(())
+}
+
+fn main() -> io::Result<()> {
+    let cli: Cli = Cli::parse_and_validate();
+
+    let term = Arc::new(AtomicBool::new(false));
+
+    let term_flag = Arc::clone(&term);
+
+    for sig in TERM_SIGNALS {
+        flag::register_conditional_shutdown(*sig, 1, Arc::clone(&term_flag))?;
+        flag::register(*sig, Arc::clone(&term_flag))?;
+    }
+
+    let mut signals = Signals::new(TERM_SIGNALS)?;
+
+    let signals_handle = signals.handle();
+
+    let join_handle = thread::spawn(move || -> io::Result<()> {
+        let rv = read_and_process(cli, term_flag);
+        signals_handle.close();
+        rv
+    });
+
+    signals.wait();
+
+    join_handle
+        .join()
+        .expect("waiting processing thread failed")
 }
