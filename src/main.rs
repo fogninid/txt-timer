@@ -36,6 +36,10 @@ struct Cli {
     /// range for color scale of delay, in seconds
     #[clap(long, value_parser, default_value_t = 0.2)]
     color_range: f32,
+    /// use regex to extract timestamp from lines instead of using real time, expecting iso8601=ms
+    /// YYYY-mm-ddTHH-MM-SS.3fZ
+    #[clap(long, value_parser)]
+    time_regex_iso: bool,
     /// use regex to extract timestamp from lines instead of using real time, must have one (?<time> ) named capturing group
     #[clap(long, value_parser)]
     time_regex: Option<Regex>,
@@ -145,8 +149,12 @@ fn print_stamp<T: io::Write>(cli: &Cli, stamp: &Stamp, writer: &mut T) -> io::Re
 }
 
 fn make_timer(cli: &mut Cli) -> Box<dyn Timer> {
-    match (cli.time_regex.take(), cli.time_regex_format.take()) {
-        (Some(regex), Some(fmt)) => {
+    match (
+        cli.time_regex.take(),
+        cli.time_regex_format.take(),
+        cli.time_regex_iso,
+    ) {
+        (Some(regex), Some(fmt), false) => {
             if !regex.capture_names().contains(&Some("time")) {
                 Cli::command()
                     .error(
@@ -157,7 +165,14 @@ fn make_timer(cli: &mut Cli) -> Box<dyn Timer> {
             }
             Box::new(RegexTimer::new(regex, fmt.as_str()))
         }
-        (None, None) => Box::new(ChronoTimer::new()),
+        (None, None, true) => {
+            let regex = Regex::new(
+                r"(?P<time>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3})Z",
+            )
+            .unwrap();
+            Box::new(RegexTimer::new(regex, "%Y-%m-%dT%H:%M:%S%.3f"))
+        }
+        (None, None, false) => Box::new(ChronoTimer::new()),
         _ => Cli::command()
             .error(
                 ErrorKind::InvalidValue,
