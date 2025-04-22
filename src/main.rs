@@ -33,9 +33,6 @@ struct Cli {
     count: usize,
     #[clap(short = 'B', long, value_parser, default_value_t = 5)]
     lines_before: usize,
-    /// colorized output
-    #[clap(long, value_parser, default_value_t = false)]
-    color: bool,
     /// range for color scale of delay, in seconds
     #[clap(long, value_parser, default_value_t = 0.2)]
     color_range: f32,
@@ -131,27 +128,17 @@ impl fmt::Display for MaximalsStampsBuffer {
 
 fn print_stamp<T: io::Write>(cli: &Cli, stamp: &Stamp, writer: &mut T) -> io::Result<()> {
     if cli.prepend_time {
-        if cli.color {
-            let x = stamp.last.as_secs_f32();
-            let x_scale = x / cli.color_range;
-            let r: u8 = (255.0 * (2.0 * x_scale)).clamp(0.0, 255.0) as u8;
-            let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).clamp(0.0, 255.0) as u8;
-            writeln!(
-                writer,
-                "Δ{} @{} {}",
-                format!("{:.4}", x).truecolor(r, g, 0),
-                format!("{:.4}", stamp.total.as_secs_f32()).blue(),
-                stamp.utc.to_rfc3339().bold().white()
-            )
-        } else {
-            writeln!(
-                writer,
-                "{} @ {} {}",
-                stamp.last.as_secs_f32(),
-                stamp.total.as_secs_f32(),
-                stamp.utc.to_rfc3339()
-            )
-        }
+        let x = stamp.last.as_secs_f32();
+        let x_scale = x / cli.color_range;
+        let r: u8 = (255.0 * (2.0 * x_scale)).clamp(0.0, 255.0) as u8;
+        let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).clamp(0.0, 255.0) as u8;
+        writeln!(
+            writer,
+            "Δ{} @{} {}",
+            format!("{:.4}", x).truecolor(r, g, 0),
+            format!("{:.4}", stamp.total.as_secs_f32()).blue(),
+            stamp.utc.to_rfc3339().bold().white()
+        )
     } else {
         Ok(())
     }
@@ -210,13 +197,7 @@ impl Handler {
         let max = self.max;
         let cli = self.cli;
         match cli.output_maximals {
-            None => {
-                if cli.color {
-                    writeln!(writer, "\n{}:\n{}", "Maximals".yellow().bold(), max)
-                } else {
-                    writeln!(writer, "\nMaximals:\n{}", max)
-                }
-            }
+            None => writeln!(writer, "\n{}:\n{}", "Maximals".yellow().bold(), max),
             Some(filename) => fs::write(filename, format!("{}", max)),
         }
     }
