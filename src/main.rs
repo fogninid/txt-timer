@@ -17,10 +17,7 @@ use std::io::BufRead;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::{fmt, fs, io, thread, vec};
 
 #[derive(Parser)]
@@ -54,9 +51,6 @@ struct Cli {
     /// redirect output of maximum differences to a file
     #[clap(short, long, value_parser)]
     output_maximals: Option<PathBuf>,
-    /// buffer size for asynchronous processing
-    #[clap(long, value_parser, default_value_t = 128)]
-    async_buffer_line_count: usize,
 }
 
 impl Cli {
@@ -135,27 +129,31 @@ impl fmt::Display for MaximalsStampsBuffer {
     }
 }
 
-fn print_stamp(cli: &Cli, stamp: &Stamp) {
+fn print_stamp<T: io::Write>(cli: &Cli, stamp: &Stamp, writer: &mut T) -> io::Result<()> {
     if cli.prepend_time {
         if cli.color {
             let x = stamp.last.as_secs_f32();
             let x_scale = x / cli.color_range;
             let r: u8 = (255.0 * (2.0 * x_scale)).clamp(0.0, 255.0) as u8;
             let g: u8 = (255.0 * (2.0 - 2.0 * x_scale)).clamp(0.0, 255.0) as u8;
-            println!(
+            writeln!(
+                writer,
                 "Δ{} @{} {}",
                 format!("{:.4}", x).truecolor(r, g, 0),
                 format!("{:.4}", stamp.total.as_secs_f32()).blue(),
                 stamp.utc.to_rfc3339().bold().white()
-            );
+            )
         } else {
-            println!(
+            writeln!(
+                writer,
                 "{} @ {} {}",
                 stamp.last.as_secs_f32(),
                 stamp.total.as_secs_f32(),
                 stamp.utc.to_rfc3339()
-            );
+            )
         }
+    } else {
+        Ok(())
     }
 }
 
@@ -182,132 +180,60 @@ fn make_timer(cli: &mut Cli) -> Box<dyn Timer> {
     }
 }
 
-trait Handler {
-    fn process_line(&mut self, buffer: &str);
-
-    fn print_and_end(self: Box<Self>) -> io::Result<()>;
-}
-
-fn make_handler(cli: Cli) -> Box<dyn Handler> {
-    if cli.async_buffer_line_count > 0 {
-        Box::new(ASyncHandler::new(cli))
-    } else {
-        Box::new(SyncHandler::new(cli))
-    }
-}
-
-struct SyncHandler {
+struct Handler {
     timer: Box<dyn Timer>,
     max: MaximalsStampsBuffer,
     cli: Cli,
 }
 
-struct ASyncHandler {
-    join_handle: Option<JoinHandle<()>>,
-    tx: Option<SyncSender<String>>,
-}
-
-impl Handler for SyncHandler {
-    fn process_line(&mut self, buffer: &str) {
-        if let Some(stamp) = self.timer.stamp(buffer) {
-            print_stamp(&self.cli, &stamp);
-            self.max.insert(stamp, buffer);
-        };
-        if !self.cli.quiet {
-            print!("{}", buffer);
-        }
-    }
-
-    fn print_and_end(self: Box<Self>) -> io::Result<()> {
-        let max = self.max;
-        let cli = self.cli;
-        match cli.output_maximals {
-            None => {
-                if cli.color {
-                    println!("\n{}:\n{}", "Maximals".yellow().bold(), max);
-                } else {
-                    println!("\nMaximals:\n{}", max);
-                }
-            }
-            Some(filename) => {
-                fs::write(filename, format!("{}", max))?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl SyncHandler {
+impl Handler {
     fn new(mut cli: Cli) -> Self {
         let max = MaximalsStampsBuffer::new(cli.count, cli.lines_before);
 
         let timer = make_timer(&mut cli);
 
-        SyncHandler { timer, max, cli }
-    }
-}
-
-impl Handler for ASyncHandler {
-    fn process_line(&mut self, buffer: &str) {
-        self.tx
-            .as_ref()
-            .unwrap()
-            .send(String::from(buffer))
-            .unwrap();
+        Handler { timer, max, cli }
     }
 
-    fn print_and_end(mut self: Box<Self>) -> io::Result<()> {
-        drop(self.tx.take());
-        self.join_handle.take().unwrap().join().unwrap();
-        Ok(())
-    }
-}
-
-impl Drop for ASyncHandler {
-    fn drop(&mut self) {
-        drop(self.tx.take());
-        if let Some(join_handle) = self.join_handle.take() {
-            match join_handle.join() {
-                Ok(_) => {}
-                Err(e) => println!("Can't join threads: {:?}", e),
-            }
+    fn process_line<T: io::Write>(&mut self, buffer: &str, writer: &mut T) -> io::Result<()> {
+        if let Some(stamp) = self.timer.stamp(buffer) {
+            print_stamp(&self.cli, &stamp, writer)?;
+            self.max.insert(stamp, buffer);
+        };
+        if !self.cli.quiet {
+            write!(writer, "{}", buffer)?;
         }
+        writer.flush()
     }
-}
 
-impl ASyncHandler {
-    fn new(cli: Cli) -> Self {
-        let (tx, rx) = mpsc::sync_channel::<String>(cli.async_buffer_line_count);
-
-        let join_handle = thread::spawn(move || {
-            let mut sync_handler = SyncHandler::new(cli);
-            while let Ok(buffer) = rx.recv() {
-                sync_handler.process_line(&buffer);
+    fn print_and_end<T: io::Write>(self, writer: &mut T) -> io::Result<()> {
+        let max = self.max;
+        let cli = self.cli;
+        match cli.output_maximals {
+            None => {
+                if cli.color {
+                    writeln!(writer, "\n{}:\n{}", "Maximals".yellow().bold(), max)
+                } else {
+                    writeln!(writer, "\nMaximals:\n{}", max)
+                }
             }
-            Box::new(sync_handler)
-                .print_and_end()
-                .expect("failed to print");
-        });
-
-        ASyncHandler {
-            join_handle: Some(join_handle),
-            tx: Some(tx),
+            Some(filename) => fs::write(filename, format!("{}", max)),
         }
     }
 }
 
 fn read_and_process(cli: Cli, term_flag: Arc<AtomicBool>) -> io::Result<()> {
-    let mut handler: Box<dyn Handler> = make_handler(cli);
+    let mut handler = Handler::new(cli);
 
     let mut buffer = String::new();
     let mut stdin = io::stdin().lock();
+    let mut stdout = io::stdout().lock();
+
     while !term_flag.load(Ordering::Relaxed) && stdin.read_line(&mut buffer)? > 0 {
-        handler.process_line(&buffer);
+        handler.process_line(&buffer, &mut stdout)?;
         buffer.clear();
     }
-    drop(stdin);
-    handler.print_and_end()?;
-    Ok(())
+    handler.print_and_end(&mut stdout)
 }
 
 fn main() -> io::Result<()> {
@@ -315,11 +241,9 @@ fn main() -> io::Result<()> {
 
     let term = Arc::new(AtomicBool::new(false));
 
-    let term_flag = Arc::clone(&term);
-
     for sig in TERM_SIGNALS {
-        flag::register_conditional_shutdown(*sig, 1, Arc::clone(&term_flag))?;
-        flag::register(*sig, Arc::clone(&term_flag))?;
+        flag::register_conditional_shutdown(*sig, 1, Arc::clone(&term))?;
+        flag::register(*sig, Arc::clone(&term))?;
     }
 
     let mut signals = Signals::new(TERM_SIGNALS)?;
@@ -327,7 +251,7 @@ fn main() -> io::Result<()> {
     let signals_handle = signals.handle();
 
     let join_handle = thread::spawn(move || -> io::Result<()> {
-        let rv = read_and_process(cli, term_flag);
+        let rv = read_and_process(cli, term);
         signals_handle.close();
         rv
     });
