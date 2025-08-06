@@ -84,7 +84,7 @@ impl fmt::Display for MaximalsStampsEntry {
         )?;
 
         for l in &self.lines {
-            write!(f, "{}", l)?;
+            write!(f, "{l}")?;
         }
         Ok(())
     }
@@ -123,7 +123,7 @@ impl MaximalsStampsBuffer {
 impl fmt::Display for MaximalsStampsBuffer {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for e in self.max.iter() {
-            writeln!(f, "{}", e)?;
+            writeln!(f, "{e}")?;
             writeln!(f)?;
         }
         Ok(())
@@ -139,7 +139,7 @@ fn print_stamp<T: io::Write>(cli: &Cli, stamp: &Stamp, writer: &mut T) -> io::Re
         writeln!(
             writer,
             "Δ{} @{} {}",
-            format!("{:.4}", x).truecolor(r, g, 0),
+            format!("{x:.4}").truecolor(r, g, 0),
             format!("{:.4}", stamp.total.as_secs_f32()).blue(),
             stamp.utc.to_rfc3339().bold().white()
         )
@@ -203,7 +203,7 @@ impl Handler {
             self.max.insert(stamp, buffer);
         };
         if !self.cli.quiet {
-            write!(writer, "{}", buffer)?;
+            write!(writer, "{buffer}")?;
         }
         writer.flush()
     }
@@ -213,7 +213,7 @@ impl Handler {
         let cli = self.cli;
         match cli.output_maximals {
             None => writeln!(writer, "\n{}:\n{}", "Maximals".yellow().bold(), max),
-            Some(filename) => fs::write(filename, format!("{}", max)),
+            Some(filename) => fs::write(filename, format!("{max}")),
         }
     }
 }
