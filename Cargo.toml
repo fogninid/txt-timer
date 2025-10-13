@@ -7,7 +7,7 @@ edition = "2021"
 clap = { version = "4.5", features = ["derive"] }
 chrono = "0.4.41"
 colored = "3.0"
-regex = { version = "1.11", default-features = false, features = ["std", "perf"]}
+regex = { version = "1.12", default-features = false, features = ["std", "perf"]}
 itertools = "0.14"
 signal-hook = "0.3.18"
 
