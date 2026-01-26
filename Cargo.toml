@@ -9,7 +9,7 @@ chrono = "0.4.42"
 colored = "3.0"
 regex = { version = "1.12", default-features = false, features = ["std", "perf"]}
 itertools = "0.14"
-signal-hook = "0.4.1"
+signal-hook = "0.4.3"
 
 [dev-dependencies]
 assert_fs = "1.1"
